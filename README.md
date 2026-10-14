@@ -105,3 +105,7 @@ data/         patch data, built into src/dnas/baked_data.h
 tools/        atlas, backdrop, baked data and ISO generators
 tests/        PC-side tests
 ```
+
+## License
+
+GPL-3.0-or-later, see [LICENSE](LICENSE).

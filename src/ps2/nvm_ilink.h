@@ -7,6 +7,7 @@
 typedef struct {
     uint8_t  id[8];          /* in NVM byte order */
     uint16_t bios_version;   /* e.g. 0x0160 for 1.60 */
+    char     bios_str[16];   /* ROMVER string */
     int      ok;             /* 0 if no read method returned a plausible ID */
 } ilink_info;
 

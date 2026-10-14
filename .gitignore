@@ -1,0 +1,6 @@
+toolchain/
+build/
+*.o
+src/dnas/baked_data.h
+tests/saves_test
+tests/ui_preview

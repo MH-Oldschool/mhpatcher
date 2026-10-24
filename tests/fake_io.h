@@ -15,7 +15,7 @@ typedef struct {
 extern node card[256];
 extern int card_capacity_kb, card_present, card_swapped;
 extern int fail_write_from, fail_write_count, write_calls, fail_remove;
-extern int corrupt_read_at, corrupt_read_count, read_calls;
+extern int corrupt_read_at, corrupt_read_count, read_calls, fail_read_count;
 extern char usb_base[512];
 extern int usb_present, usb_full_after, usb_no_rename, usb_written;
 extern int usb_init_result;

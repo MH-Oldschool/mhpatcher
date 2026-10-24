@@ -39,6 +39,9 @@ int mc_has_mh2(int port) {
 int mc_has_mhg(int port) {
     return exists(port, "/" MHG_SAVE_DIR "/" MHG_SAVE_FILE);
 }
+int mc_has_mh1e(int port) {
+    return exists(port, "/" MH1E_SAVE_DIR "/" MH1E_SAVE_FILE);
+}
 
 /* Real cards sometimes fail a single transfer and succeed on the next, so
  * reads and writes are retried. A missing file is not retried, and retries

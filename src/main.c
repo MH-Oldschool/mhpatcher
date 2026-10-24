@@ -2,6 +2,7 @@
  *
  *   language -> main menu
  *     Install patches: memory card -> scan -> game -> confirm -> install
+ *     Remove patches:  memory card -> scan -> game -> confirm -> remove
  *     Backup saves:    memory card -> USB drive -> scan -> game ->
  *                      back up / restore -> confirm -> copy */
 #include <kernel.h>
@@ -28,7 +29,7 @@ typedef enum {
     ST_BK_CONFIRM, ST_BK_RUN, ST_BK_DONE, ST_BK_FAIL
 } state;
 
-typedef enum { MODE_INSTALL = 0, MODE_BACKUP = 1 } app_mode;
+typedef enum { MODE_INSTALL = 0, MODE_REMOVE = 1, MODE_BACKUP = 2 } app_mode;
 static app_mode mode = MODE_INSTALL;
 
 /* Set by screens that flip the frame themselves before blocking I/O. */
@@ -39,7 +40,10 @@ static int usb_frames;      /* frames on the USB screen, 0 = just entered */
 static ui_lang lang = LANG_EN;
 static ilink_info ilink;
 static int sel_port = 0;
-static int have_mh2 = 0, have_mhg = 0;
+/* install targets, indexed by mh_game */
+#define GAME_COUNT 3
+static const atlas_str GAME_LABEL[GAME_COUNT] = { STR_MH2_LABEL, STR_MHGJ_LABEL, STR_MH1E_LABEL };
+static int have_game[GAME_COUNT];
 static int game_cur = 0;
 static mh_game sel_game = GAME_MH2;
 static install_result last_result;
@@ -127,6 +131,16 @@ static void menu_row(float x, float y, float w, int selected) {
     if (selected) { vid_rect(x, y, w, 1, COL_GOLD); vid_rect(x, y + ROW_H - 1, w, 1, COL_GOLD); }
 }
 
+/* A `bw` x `bh` accent bar at (UI_L, y) with a one-line message centred on it.
+ * An odd spare pixel goes below the text, which already sits low by its descenders.
+ * Returns the message's y, which lines below it are placed from. */
+static float bar_line(float y, int bw, int bh, uint32_t bar, atlas_str s) {
+    float ty = y + (bh - vid_phrase_h(s, lang)) / 2;
+    vid_rect(UI_L, y, bw, bh, bar);
+    vid_phrase(s, lang, UI_L + 14, ty, COL_BONE);
+    return ty;
+}
+
 /* ---- screens ------------------------------------------------------------ */
 static const char *err_name(install_result r) {
     switch (r) {
@@ -188,7 +202,7 @@ static state scr_mcsel(unsigned k) {
     if (k & BTN_CIRCLE) {
         if ((cur == 0 && mc_p0) || (cur == 1 && mc_p1)) {
             sel_port = cur; mc_polled = 0; usb_frames = 0;
-            return mode == MODE_INSTALL ? ST_SCAN : ST_USB_WAIT;
+            return mode == MODE_BACKUP ? ST_USB_WAIT : ST_SCAN;
         }
     }
     return ST_MCSEL;
@@ -211,32 +225,32 @@ static state scr_scan(unsigned k) {
     vid_phrase(STR_SCANNING, lang, UI_L, g_py + 3, COL_TEXT);
     vid_end();
     frame_done = 1;
-    have_mh2 = mc_has_mh2(sel_port);
-    have_mhg = mc_has_mhg(sel_port);
-    if (!have_mh2 && !have_mhg) return ST_NO_SAVES;
-    sel_game = have_mh2 ? GAME_MH2 : GAME_MHG;
-    game_cur = have_mh2 ? 0 : 1;
-    return ST_GAMESEL;
+    have_game[GAME_MH2]  = mc_has_mh2(sel_port);
+    have_game[GAME_MHG]  = mc_has_mhg(sel_port);
+    have_game[GAME_MH1E] = mc_has_mh1e(sel_port);
+    for (game_cur = 0; game_cur < GAME_COUNT; game_cur++)
+        if (have_game[game_cur]) return ST_GAMESEL;
+    return ST_NO_SAVES;
 }
 
 static state scr_gamesel(unsigned k) {
     header(STR_FOUND_TITLE);
-    body(rows_h(2));
-    menu_row(UI_L, row_y(0), UI_W, game_cur == 0 && have_mh2);
-    menu_row(UI_L, row_y(1), UI_W, game_cur == 1 && have_mhg);
-    row_label(0, STR_MH2_LABEL, have_mh2 ? COL_BONE : COL_DIM);
-    row_label(1, STR_MHG_LABEL, have_mhg ? COL_BONE : COL_DIM);
-    vid_phrase(have_mh2 ? STR_FOUND : STR_NOT_FOUND, lang, UI_L + UI_W - 120, row_y(0) + 7, have_mh2 ? COL_GREEN : COL_DIM);
-    vid_phrase(have_mhg ? STR_FOUND : STR_NOT_FOUND, lang, UI_L + UI_W - 120, row_y(1) + 7, have_mhg ? COL_GREEN : COL_DIM);
+    body(rows_h(GAME_COUNT));
+    for (int i = 0; i < GAME_COUNT; i++) {
+        int have = have_game[i];
+        menu_row(UI_L, row_y(i), UI_W, game_cur == i);
+        row_label(i, GAME_LABEL[i], have ? COL_BONE : COL_DIM);
+        vid_phrase(have ? STR_FOUND : STR_NOT_FOUND, lang, UI_L + UI_W - 120, row_y(i) + 7, have ? COL_GREEN : COL_DIM);
+    }
     footer(1, 1, NULL);
 
-    if ((k & BTN_UP)   && have_mh2) game_cur = 0;
-    if ((k & BTN_DOWN) && have_mhg) game_cur = 1;
+    /* the cursor skips games without a save */
+    if (k & BTN_UP)
+        for (int i = game_cur - 1; i >= 0; i--) if (have_game[i]) { game_cur = i; break; }
+    if (k & BTN_DOWN)
+        for (int i = game_cur + 1; i < GAME_COUNT; i++) if (have_game[i]) { game_cur = i; break; }
     if (k & BTN_CROSS) return ST_MCSEL;
-    if (k & BTN_CIRCLE) {
-        if (game_cur == 0 && have_mh2) { sel_game = GAME_MH2; return ST_CONFIRM; }
-        if (game_cur == 1 && have_mhg) { sel_game = GAME_MHG; return ST_CONFIRM; }
-    }
+    if (k & BTN_CIRCLE) { sel_game = (mh_game)game_cur; return ST_CONFIRM; }
     return ST_GAMESEL;
 }
 
@@ -250,15 +264,15 @@ static state scr_no_saves(unsigned k) {
 }
 
 static state scr_confirm(unsigned k) {
-    header(STR_CONFIRM_TTL);
+    int rm = mode == MODE_REMOVE;
+    header(rm ? STR_RMC_TITLE : STR_CONFIRM_TTL);
     body(150);
     float y = g_py;
     vid_scrim(UI_L, y, UI_W, 40, COL_SELT);
-    vid_rect(UI_L, y, 5, 40, COL_RED);
-    vid_phrase(STR_BACKUP_WARN, lang, UI_L + 14, y + 11, COL_BONE);
-    vid_phrase(STR_CONFIRM_1, lang, UI_L, y + 64, COL_TEXT);
+    bar_line(y, 5, 40, COL_RED, STR_BACKUP_WARN);
+    vid_phrase(rm ? STR_RMC_BODY : STR_CONFIRM_1, lang, UI_L, y + 64, COL_TEXT);
     menu_row(UI_L, y + 90, UI_W, 1);
-    vid_phrase(sel_game == GAME_MH2 ? STR_MH2_LABEL : STR_MHG_LABEL, lang, UI_L + 18, y + 97, COL_GOLD);
+    vid_phrase(GAME_LABEL[sel_game], lang, UI_L + 18, y + 97, COL_GOLD);
     vid_phrase(STR_A_BACKUP, lang, UI_L, y + 134, COL_DIM);
     footer(1, 1, NULL);
     if (k & BTN_CROSS)  return ST_GAMESEL;
@@ -268,35 +282,43 @@ static state scr_confirm(unsigned k) {
 
 static state scr_install(unsigned k) {
     (void)k;
-    header(STR_INJECTING);
+    header(mode == MODE_REMOVE ? STR_REMOVING : STR_INJECTING);
     body(24);
     vid_phrase(STR_INSTALLING, lang, UI_L, g_py + 3, COL_DIM);
     vid_end();
     frame_done = 1;
-    last_result = install_game(sel_game, sel_port, ilink.id);
+    last_result = (mode == MODE_REMOVE) ? remove_game(sel_game, sel_port)
+                                        : install_game(sel_game, sel_port, ilink.id);
     return (last_result == INS_OK) ? ST_DONE : ST_FAIL;
 }
 
 static state scr_done(unsigned k) {
-    header(STR_OK_TITLE);
-    body(124);
+    int rm = mode == MODE_REMOVE;
+    header(rm ? STR_RMOK_TITLE : STR_OK_TITLE);
+    body(rm ? 20 : 124);
     float y = g_py;
-    vid_rect(UI_L, y, 4, 42, COL_GREEN);
-    vid_phrase(STR_OK_BODY,  lang, UI_L + 14, y,      COL_BONE);
-    vid_phrase(STR_OK_BODY2, lang, UI_L + 14, y + 24, COL_BONE);
-    vid_phrase(STR_ILINK_NOTE,  lang, UI_L, y + 84,  COL_DIM);
-    vid_phrase(STR_ILINK_NOTE2, lang, UI_L, y + 106, COL_DIM);
+    if (rm) {
+        bar_line(y, 4, 20, COL_GREEN, STR_RMOK_BODY);
+    } else {
+        vid_rect(UI_L, y, 4, 42, COL_GREEN);
+        vid_phrase(STR_OK_BODY,  lang, UI_L + 14, y,      COL_BONE);
+        vid_phrase(STR_OK_BODY2, lang, UI_L + 14, y + 24, COL_BONE);
+        vid_phrase(STR_ILINK_NOTE,  lang, UI_L, y + 84,  COL_DIM);
+        vid_phrase(STR_ILINK_NOTE2, lang, UI_L, y + 106, COL_DIM);
+    }
     footer(1, 0, NULL);
     if (k & BTN_CIRCLE) return ST_MCSEL;
     return ST_DONE;
 }
 
 static state scr_fail(unsigned k) {
-    header(STR_FAIL_TITLE);
+    header(mode == MODE_REMOVE ? STR_BKF_TITLE : STR_FAIL_TITLE);
     body(mc_last_error()[0] ? 84 : 60);
     float y = g_py;
-    vid_rect(UI_L, y, 4, 20, COL_RED);
-    vid_phrase(STR_FAIL_BODY, lang, UI_L + 14, y, COL_BONE);
+    /* nothing was written / the original was put back / it could not be */
+    atlas_str body_str = last_result == INS_ERR_NO_SAVE     ? STR_E_NOTHING
+                       : last_result == INS_ERR_VERIFY_LOST ? STR_FAIL_LOST : STR_FAIL_BODY;
+    y = bar_line(y, 4, 20, COL_RED, body_str);
     char code[48];
     snprintf(code, sizeof code, "[%d] %s", (int)last_result, err_name(last_result));
     vid_text(code, UI_L, y + 40, COL_GOLD);
@@ -311,17 +333,18 @@ static state scr_fail(unsigned k) {
 static state scr_mode(unsigned k) {
     static int cur = 0;
     header(STR_MODE_TITLE);
-    body(rows_h(2));
-    menu_row(UI_L, row_y(0), UI_W, cur == 0);
-    menu_row(UI_L, row_y(1), UI_W, cur == 1);
-    row_label(0, STR_MODE_INSTALL, cur == 0 ? COL_BONE : COL_DIM);
-    row_label(1, STR_MODE_BACKUP,  cur == 1 ? COL_BONE : COL_DIM);
+    static const atlas_str LABEL[3] = { STR_MODE_INSTALL, STR_MODE_REMOVE, STR_MODE_BACKUP };
+    body(rows_h(3));
+    for (int i = 0; i < 3; i++) {
+        menu_row(UI_L, row_y(i), UI_W, cur == i);
+        row_label(i, LABEL[i], cur == i ? COL_BONE : COL_DIM);
+    }
     footer(1, 1, NULL);
-    if (k & BTN_UP)   cur = 0;
-    if (k & BTN_DOWN) cur = 1;
+    if ((k & BTN_UP)   && cur > 0) cur--;
+    if ((k & BTN_DOWN) && cur < 2) cur++;
     if (k & BTN_CROSS) return ST_LANG;
     if (k & BTN_CIRCLE) {
-        mode = cur ? MODE_BACKUP : MODE_INSTALL;
+        mode = (app_mode)cur;
         /* the patch is sealed to the i.Link ID */
         if (mode == MODE_INSTALL && !ilink.ok) return ST_NO_ILINK;
         return ST_MCSEL;
@@ -332,8 +355,7 @@ static state scr_mode(unsigned k) {
 static state scr_no_ilink(unsigned k) {
     header(STR_ILINK_TITLE);
     body(20);
-    vid_rect(UI_L, g_py, 4, 20, COL_RED);
-    vid_phrase(STR_E_NO_ILINK, lang, UI_L + 14, g_py + 3, COL_BONE);
+    bar_line(g_py, 4, 20, COL_RED, STR_E_NO_ILINK);
     footer(0, 1, NULL);
     if (k & BTN_CROSS) return ST_MODE;
     return ST_NO_ILINK;
@@ -385,21 +407,16 @@ static state scr_usb_none(unsigned k) {
     header(STR_USB_TITLE);
     int has_detail = (busy || !usb_driver_ok) && usb_init_detail()[0];
     body((busy ? 82 : usb_driver_ok ? 50 : 22) + (has_detail ? 26 : 0));
-    float y = g_py;
-    vid_rect(UI_L, y, 4, 20, COL_RED);
+    float y = bar_line(g_py, 4, 20, COL_RED, busy ? STR_E_USB_BUSY : !usb_driver_ok ? STR_E_DRIVER : STR_USB_NONE);
     if (busy) {
-        vid_phrase(STR_E_USB_BUSY,  lang, UI_L + 14, y + 3, COL_BONE);
-        vid_phrase(STR_E_USB_BUSY2, lang, UI_L, y + 37, COL_TEXT);
-        vid_phrase(STR_E_USB_BUSY3, lang, UI_L, y + 61, COL_TEXT);
-    } else if (!usb_driver_ok) {
-        vid_phrase(STR_E_DRIVER, lang, UI_L + 14, y + 3, COL_BONE);
-    } else {
-        vid_phrase(STR_USB_NONE, lang, UI_L + 14, y + 3, COL_BONE);
-        vid_phrase(STR_USB_NONE2, lang, UI_L, y + 31, COL_TEXT);
+        vid_phrase(STR_E_USB_BUSY2, lang, UI_L, y + 34, COL_TEXT);
+        vid_phrase(STR_E_USB_BUSY3, lang, UI_L, y + 58, COL_TEXT);
+    } else if (usb_driver_ok) {
+        vid_phrase(STR_USB_NONE2, lang, UI_L, y + 28, COL_TEXT);
     }
     const char *detail = usb_init_detail();
     if ((busy || !usb_driver_ok) && detail[0])
-        vid_text(detail, UI_L + 14, g_py + (busy ? 82 : 26), COL_GOLD);
+        vid_text(detail, UI_L + 14, y + (busy ? 79 : 23), COL_GOLD);
     int retry = !busy && usb_init_state() != USB_INIT_FAILED;
     footer(0, 1, retry ? "[START]" : NULL);
     if (k & BTN_CROSS) { usb_frames = 0; return ST_MCSEL; }
@@ -492,8 +509,7 @@ static state scr_bk_confirm(unsigned k) {
     float y = g_py;
     if (over) {
         vid_scrim(UI_L, y, UI_W, 40, COL_SELT);
-        vid_rect(UI_L, y, 5, 40, COL_RED);
-        vid_phrase(bk_restore ? STR_RSC_OVER : STR_BKC_OVER, lang, UI_L + 14, y + 11, COL_BONE);
+        bar_line(y, 5, 40, COL_RED, bk_restore ? STR_RSC_OVER : STR_BKC_OVER);
         y += 52;
     }
     vid_phrase(bk_restore ? STR_RSC_BODY : STR_BKC_BODY, lang, UI_L, y + 2, COL_TEXT);
@@ -532,11 +548,9 @@ static state scr_bk_done(unsigned k) {
     int patch_note = bk_restore && save_has_patch(bk_game);
     header(bk_restore ? STR_RSOK_TITLE : STR_BKOK_TITLE);
     body(bk_restore ? (patch_note ? 50 : 22) : 50);
-    float y = g_py;
-    vid_rect(UI_L, y, 4, 20, COL_GREEN);
-    vid_phrase(bk_restore ? STR_RSOK_BODY : STR_BKOK_BODY, lang, UI_L + 14, y + 3, COL_BONE);
-    if (!bk_restore) vid_text(save_detail, UI_L + 14, y + 30, COL_GOLD);
-    if (patch_note) vid_phrase(STR_RSOK_PATCH, lang, UI_L, y + 34, COL_DIM);
+    float y = bar_line(g_py, 4, 20, COL_GREEN, bk_restore ? STR_RSOK_BODY : STR_BKOK_BODY);
+    if (!bk_restore) vid_text(save_detail, UI_L + 14, y + 27, COL_GOLD);
+    if (patch_note) vid_phrase(STR_RSOK_PATCH, lang, UI_L, y + 31, COL_DIM);
     footer(1, 0, NULL);
     if (k & BTN_CIRCLE) return ST_BK_SCAN;
     return ST_BK_DONE;
@@ -566,10 +580,7 @@ static state scr_bk_fail(unsigned k) {
     int has_detail = detail[0] != 0;
     header(STR_BKF_TITLE);
     body(20 + (has_detail ? 28 : 0) + (untouched ? 28 : 0) + 28);
-    float y = g_py;
-    vid_rect(UI_L, y, 4, 20, COL_RED);
-    vid_phrase(bk_err_phrase(bk_result), lang, UI_L + 14, y + 3, COL_BONE);
-    y += 28;
+    float y = bar_line(g_py, 4, 20, COL_RED, bk_err_phrase(bk_result)) + 25;
     if (has_detail) { vid_text(detail, UI_L + 14, y, COL_GOLD); y += 28; }
     if (untouched)  { vid_phrase(STR_E_NOTHING, lang, UI_L, y + 3, COL_DIM); y += 28; }
     char code[24];

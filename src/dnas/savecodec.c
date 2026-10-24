@@ -30,23 +30,23 @@ static void xor_words(uint8_t *buf, size_t offset, size_t words, uint16_t seed) 
     }
 }
 
-int mhg_save_decode(uint8_t *buf) {
+int mh_save_decode(uint8_t *buf, size_t words) {
     uint16_t version = rd16(buf + 0);
     uint16_t seed    = rd16(buf + 2);
     uint16_t stored  = rd16(buf + 4);
     uint16_t tag     = rd16(buf + 6);
-    xor_words(buf, 8, MHG_SAVE_WORDS, seed);
-    uint16_t sum = mh_checksum(buf + 8, MHG_SAVE_WORDS);
+    xor_words(buf, 8, words, seed);
+    uint16_t sum = mh_checksum(buf + 8, words);
     return (version == 0x0100 && tag == 0x5963 && sum == stored) ? 1 : 0;
 }
 
-void mhg_save_encode(uint8_t *buf, uint16_t seed) {
-    uint16_t sum = mh_checksum(buf + 8, MHG_SAVE_WORDS);
+void mh_save_encode(uint8_t *buf, size_t words, uint16_t seed) {
+    uint16_t sum = mh_checksum(buf + 8, words);
     wr16(buf + 0, 0x0100);
     wr16(buf + 2, seed);
     wr16(buf + 4, sum);
     wr16(buf + 6, 0x5963);
-    xor_words(buf, 8, MHG_SAVE_WORDS, seed);
+    xor_words(buf, 8, words, seed);
 }
 
 int mh2_patchbin_decode(const uint8_t *file, uint8_t *payload) {

@@ -15,7 +15,10 @@ out=src/dnas/baked_data.h
       mh2_payload:data/mh2_payload.bin \
       mhg_blob:data/mhg_blob.raw \
       mhg_hdr_plain:data/mhg_hdr_plain.bin \
-      mhg_meta:data/mhg_meta.bin; do
+      mhg_meta:data/mhg_meta.bin \
+      mh1e_blob:data/mh1e_blob.raw \
+      mh1e_hdr_plain:data/mh1e_hdr_plain.bin \
+      mh1e_meta:data/mh1e_meta.bin; do
     name=${pair%%:*}; file=${pair#*:}
     echo "static const uint8_t ${name}[] = {"
     xxd -i < "$file" | sed 's/^/  /'

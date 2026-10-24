@@ -30,7 +30,7 @@ char save_detail[96];
 static char safety_shown[96];
 
 const char *save_dir(save_game g) { return DIRS[g]; }
-int save_has_patch(save_game g) { return g == SG_MH2 || g == SG_MHG; }
+int save_has_patch(save_game g) { return g == SG_MH2 || g == SG_MHG || g == SG_MH1E; }
 
 static void usb_path(char *out, int n, save_game g, const char *suffix) {
     snprintf(out, n, "%s/%s%s", USB_DIR, DIRS[g], suffix);

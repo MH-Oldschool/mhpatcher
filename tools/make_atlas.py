@@ -58,15 +58,14 @@ STRINGS = [
     ("STR_SCANNING",    "Scanning for save data...", "セーブデータを検索中...", 't'),
     ("STR_FOUND_TITLE", "Save data", "セーブデータ", 't'),
     ("STR_MH2_LABEL",   "Monster Hunter 2 (dos)", "モンスターハンター2 (ドス)", 'b'),
-    ("STR_MHG_LABEL",   "Monster Hunter G", "モンスターハンターG", 'b'),
     ("STR_FOUND",       "FOUND", "検出", 'b'),
     ("STR_NOT_FOUND",   "not found", "未検出", 'b'),
-    ("STR_NO_SAVES",    "No Monster Hunter 2 or G save data on this card.",
-                        "このカードにMH2/MHGのセーブデータがありません。", 'b'),
+    ("STR_NO_SAVES",    "No Monster Hunter 2 (dos), G [Japan] or [Europe] save data on this card.",
+                        "このカードにMH2 (ドス)/MHG［日本版］/MH［欧州版］のセーブデータがありません。", 'b'),
 
     ("STR_CONFIRM_TTL", "Confirm installation", "インストールの確認", 't'),
-    ("STR_BACKUP_WARN", "STRONGLY RECOMMENDED: back up your memory card before patching.",
-                        "【強く推奨】適用前にメモリーカードのバックアップを。", 'b'),
+    ("STR_BACKUP_WARN", "STRONGLY RECOMMENDED: back up your save data before patching.",
+                        "【強く推奨】適用前にセーブデータのバックアップを。", 'b'),
     ("STR_CONFIRM_1",   "Install the official patch for:", "次のゲームへ公式パッチを導入します:", 'b'),
     ("STR_A_BACKUP",    "A backup of the save is kept in memory during patching.",
                         "適用中はメモリ内にセーブのバックアップを保持します。", 'b'),
@@ -80,20 +79,31 @@ STRINGS = [
     ("STR_OK_BODY2",    "automatically when you play online.",
                         "オンラインプレイ時に自動で適用されます。", 'b'),
     ("STR_FAIL_TITLE",  "Installation failed", "インストール失敗", 't'),
+    ("STR_FAIL_LOST",   "Writing failed and the original save could not be put back.",
+                        "書き込みに失敗し、元のセーブを戻せませんでした。", 'b'),
     ("STR_FAIL_BODY",   "An error occurred. The save was restored from the backup.",
                         "エラーが発生しました。バックアップから復元しました。", 'b'),
+
+    # patch removal
+    ("STR_RMC_TITLE",   "Confirm removal", "削除の確認", 't'),
+    ("STR_RMC_BODY",    "Remove the patch from:", "次のゲームからパッチを削除します:", 'b'),
+    ("STR_REMOVING",    "Removing patch...", "パッチを削除中...", 't'),
+    ("STR_RMOK_TITLE",  "Patch removed", "パッチ削除完了", 't'),
+    ("STR_RMOK_BODY",   "The patch has been cleared from the save data.",
+                        "セーブデータからパッチを削除しました。", 'b'),
 
     # main menu
     ("STR_MODE_TITLE",  "What would you like to do?", "実行する操作を選択してください", 't'),
     ("STR_MODE_INSTALL","Install patches", "パッチをインストール", 'b'),
     ("STR_MODE_BACKUP", "Backup saves", "セーブデータのバックアップ", 'b'),
+    ("STR_MODE_REMOVE", "Remove patches", "パッチを削除", 'b'),
 
     # save backup / restore
-    ("STR_MHGJ_LABEL",  "Monster Hunter G (Japan)", "モンスターハンターG（日本版）", 'b'),
-    ("STR_MHGK_LABEL",  "Monster Hunter G (Korea)", "モンスターハンターG（韓国版）", 'b'),
-    ("STR_MH1J_LABEL",  "Monster Hunter (Japan)", "モンスターハンター（日本版）", 'b'),
-    ("STR_MH1U_LABEL",  "Monster Hunter (USA)", "モンスターハンター（北米版）", 'b'),
-    ("STR_MH1E_LABEL",  "Monster Hunter (Europe)", "モンスターハンター（欧州版）", 'b'),
+    ("STR_MHGJ_LABEL",  "Monster Hunter G [Japan]", "モンスターハンターG［日本版］", 'b'),
+    ("STR_MHGK_LABEL",  "Monster Hunter G [Korea]", "モンスターハンターG［韓国版］", 'b'),
+    ("STR_MH1J_LABEL",  "Monster Hunter [Japan]", "モンスターハンター［日本版］", 'b'),
+    ("STR_MH1U_LABEL",  "Monster Hunter [USA]", "モンスターハンター［北米版］", 'b'),
+    ("STR_MH1E_LABEL",  "Monster Hunter [Europe]", "モンスターハンター［欧州版］", 'b'),
     ("STR_COL_CARD",    "Memory card", "メモリーカード", 'b'),
     ("STR_COL_USB",     "USB drive", "USBドライブ", 'b'),
     ("STR_USB_TITLE",   "USB drive", "USBドライブ", 't'),
@@ -208,16 +218,20 @@ def main():
     # box, ASCII glyphs on a shared baseline
     renders = []
     baselines = {}   # (enum, lang) -> baseline offset from the rect top
+    # tallest first, so each shelf holds phrases of one height
+    phrases = []
     for enum, en, jp, sz in STRINGS:
         font = {'t': ft_title, 's': ft_small}.get(sz, ft_body)
         for lang, text in (("EN", en), ("JP", jp)):
-            (w, h), off = measure(font, text)
-            rx, ry = place(w, h)
-            entries.append((enum, lang, rx, ry, w, h))
-            renders.append((rx, ry, text, font, off, None))
-            # drawn at (rx - off.x + 1, ry - off.y + 1) with the default "la"
-            # anchor, whose baseline is one ascent below the drawing origin
-            baselines[(enum, lang)] = 1 + font.getmetrics()[0] - off[1]
+            phrases.append((enum, lang, text, font, measure(font, text)))
+    phrases.sort(key=lambda p: -p[4][0][1])
+    for enum, lang, text, font, ((w, h), off) in phrases:
+        rx, ry = place(w, h)
+        entries.append((enum, lang, rx, ry, w, h))
+        renders.append((rx, ry, text, font, off, None))
+        # drawn at (rx - off.x + 1, ry - off.y + 1) with the default "la"
+        # anchor, whose baseline is one ascent below the drawing origin
+        baselines[(enum, lang)] = 1 + font.getmetrics()[0] - off[1]
 
     # fixed cells for packing, but real advance widths for proportional text
     asc, desc = ft_mono.getmetrics()

@@ -18,13 +18,13 @@ int fail_write_from = -1;     /* mc_write_new call index that starts failing */
 int fail_write_count = 0;     /* how many calls fail from there (-1 = all)   */
 int write_calls = 0;
 int fail_remove = 0;
-int corrupt_read_at = -1, corrupt_read_count = 1, read_calls = 0;
+int corrupt_read_at = -1, corrupt_read_count = 1, read_calls = 0, fail_read_count = 0;
 
 void card_reset(void) {
     for (int i = 0; i < 256; i++) { free(card[i].data); memset(&card[i], 0, sizeof card[i]); }
     card_capacity_kb = 8000; card_present = 1; card_swapped = 0;
     fail_write_from = -1; fail_write_count = 0; write_calls = 0;
-    fail_remove = 0; corrupt_read_at = -1; corrupt_read_count = 1; read_calls = 0;
+    fail_remove = 0; corrupt_read_at = -1; corrupt_read_count = 1; read_calls = 0; fail_read_count = 0;
 }
 
 static int split(const char *path, char *dir, char *name) {
@@ -184,6 +184,7 @@ static node *file_at(const char *path) {
 }
 int mc_read(int port, const char *path, void *buf, int maxlen) {
     node *n = file_at(path);
+    if (fail_read_count > 0) { fail_read_count--; return -5; } /* any other card error */
     if (!card_present || !n) return -4;                       /* sceMcResNoEntry */
     int c = (int)n->size < maxlen ? (int)n->size : maxlen;
     memcpy(buf, n->data, c);

@@ -40,6 +40,7 @@ static node *file_at(const char *path) {
 }
 int mc_has_mh2(int port) { return port == 0 && file_at("/" MH2_SAVE_DIR "/" MH2_SAVE_DIR); }
 int mc_has_mhg(int port) { return port == 0 && file_at("/" MHG_SAVE_DIR "/" MHG_SAVE_FILE); }
+int mc_has_mh1e(int port) { return port == 0 && file_at("/" MH1E_SAVE_DIR "/" MH1E_SAVE_FILE); }
 
 /* ---- software video ----------------------------------------------------- */
 #define W 640
@@ -134,6 +135,7 @@ static void card_heals(void)  { fail_write_from = -1; }
 static step script[] = {
     { 0, "01_language", NULL },          { BTN_CIRCLE, NULL, NULL },
     { 0, "02_menu_install", NULL },      { BTN_DOWN, NULL, NULL },
+    { 0, "02_menu_remove", NULL },       { BTN_DOWN, NULL, NULL },
     { 0, "03_menu_backup", NULL },       { BTN_CIRCLE, NULL, NULL },
     { 0, "04_card_select", NULL },       { BTN_CIRCLE, NULL, NULL },
     { 0, "05_usb_search", NULL },        { 0, NULL, NULL },
@@ -188,7 +190,8 @@ static step opl_script[] = {
     { 0, NULL, NULL },                   { BTN_CIRCLE, NULL, NULL },
     { BTN_CIRCLE, NULL, NULL },          /* Install patches */
     { 0, "opl_01_no_ilink", NULL },      { BTN_CROSS, NULL, NULL },
-    { BTN_DOWN, NULL, NULL },            { BTN_CIRCLE, NULL, NULL },          /* Backup saves */
+    { BTN_DOWN, NULL, NULL },            { BTN_DOWN, NULL, NULL },
+    { BTN_CIRCLE, NULL, NULL },          /* Backup saves */
     { BTN_CIRCLE, NULL, NULL },          /* card */
     { 0, NULL, NULL }, { 0, NULL, NULL },
     { 0, "opl_02_usb_busy", NULL },      { BTN_CROSS, NULL, NULL },
@@ -199,8 +202,48 @@ static step opl_script[] = {
     { 0, NULL, NULL }, { 0, NULL, NULL },
     { 0, "opl_03_jp_usb_busy", NULL },   { BTN_CROSS, NULL, NULL },
     { BTN_CROSS, NULL, NULL },           { BTN_UP, NULL, NULL },
-    { BTN_CIRCLE, NULL, NULL },
+    { BTN_UP, NULL, NULL },              { BTN_CIRCLE, NULL, NULL },          /* Install patches */
     { 0, "opl_04_jp_no_ilink", NULL },
+};
+/* card: MH2 and MH1 Europe, no MHG; the cursor skips MHG */
+static step install_script[] = {
+    { 0, NULL, NULL },                   { BTN_CIRCLE, NULL, NULL },          /* English */
+    { BTN_CIRCLE, NULL, NULL },          /* Install patches */
+    { BTN_CIRCLE, NULL, NULL },          /* card */
+    { 0, NULL, NULL },
+    { 0, "ins_01_games", NULL },         { BTN_DOWN, NULL, NULL },
+    { 0, "ins_02_games_mh1e", NULL },    { BTN_CIRCLE, NULL, NULL },
+    { 0, "ins_03_confirm_mh1e", NULL },  { BTN_CIRCLE, NULL, NULL },
+    { 0, NULL, NULL },
+    { 0, "ins_04_done", NULL },          { BTN_CIRCLE, NULL, NULL },          /* card select */
+    { BTN_CROSS, NULL, NULL },           { BTN_CROSS, NULL, NULL },           /* menu, language */
+    { BTN_DOWN, NULL, NULL },            { BTN_CIRCLE, NULL, NULL },          /* Japanese */
+    { BTN_CIRCLE, NULL, NULL },          { BTN_CIRCLE, NULL, NULL },
+    { 0, NULL, NULL },                   { BTN_DOWN, NULL, NULL },
+    { 0, "ins_05_jp_games_mh1e", NULL }, { BTN_CIRCLE, NULL, NULL },
+    { 0, "ins_06_jp_confirm_mh1e", NULL },{ BTN_CIRCLE, NULL, card_breaks },
+    { 0, NULL, NULL },
+    { 0, "ins_07_jp_fail_lost", card_heals },
+};
+/* same card, Remove patches on MH1 Europe */
+static step remove_script[] = {
+    { 0, NULL, NULL },                   { BTN_CIRCLE, NULL, NULL },          /* English */
+    { BTN_DOWN, NULL, NULL },
+    { 0, "rm_01_menu", NULL },           { BTN_CIRCLE, NULL, NULL },          /* Remove patches */
+    { BTN_CIRCLE, NULL, NULL },          /* card */
+    { 0, NULL, NULL },                   /* scan */
+    { BTN_DOWN, NULL, NULL },            { BTN_CIRCLE, NULL, NULL },          /* MH1 Europe */
+    { 0, "rm_02_confirm", NULL },        { BTN_CIRCLE, NULL, NULL },
+    { 0, NULL, NULL },
+    { 0, "rm_03_done", NULL },           { BTN_CIRCLE, NULL, NULL },          /* card select */
+    { BTN_CROSS, NULL, NULL },           { BTN_CROSS, NULL, NULL },           /* menu, language */
+    { BTN_DOWN, NULL, NULL },            { BTN_CIRCLE, NULL, NULL },          /* Japanese */
+    { 0, "rm_04_jp_menu", NULL },        { BTN_CIRCLE, NULL, NULL },
+    { BTN_CIRCLE, NULL, NULL },          { 0, NULL, NULL },                   /* card, scan */
+    { BTN_CIRCLE, NULL, NULL },          /* MH2 */
+    { 0, "rm_05_jp_confirm", NULL },     { BTN_CIRCLE, NULL, NULL },
+    { 0, NULL, NULL },
+    { 0, "rm_06_jp_done", NULL },
 };
 static step *steps = script;
 static unsigned nsteps = sizeof script / sizeof script[0];
@@ -218,7 +261,7 @@ unsigned pad_poll(void) {
 int app_main(void);
 
 int main(int argc, char **argv) {
-    if (argc < 4) { fprintf(stderr, "usage: %s saves-dir usb-dir out-dir [opl]\n", argv[0]); return 2; }
+    if (argc < 4) { fprintf(stderr, "usage: %s saves-dir usb-dir out-dir [opl|install|remove]\n", argv[0]); return 2; }
     if (argc > 4 && !strcmp(argv[4], "opl")) {
         opl_scenario = 1;
         usb_init_result = USB_INIT_BUSY;
@@ -226,6 +269,14 @@ int main(int argc, char **argv) {
     }
     snprintf(usb_base, sizeof usb_base, "%s", argv[2]);
     out_dir = argv[3];
+    if (argc > 4 && (!strcmp(argv[4], "install") || !strcmp(argv[4], "remove"))) {
+        if (!strcmp(argv[4], "install")) { steps = install_script; nsteps = sizeof install_script / sizeof install_script[0]; }
+        else                             { steps = remove_script;  nsteps = sizeof remove_script / sizeof remove_script[0]; }
+        card_reset();
+        card_load(argv[1], save_dir(SG_MH2), 1);
+        card_load(argv[1], save_dir(SG_MH1E), 1);
+        return app_main();
+    }
     /* drive: backups of MHG and MH1 USA; card: MH2, MH1 JP, MH1 USA */
     usb_reset();
     int oc[SG_COUNT], ou[SG_COUNT];

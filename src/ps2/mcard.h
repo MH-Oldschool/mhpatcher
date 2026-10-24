@@ -4,6 +4,9 @@
 
 #include <stdint.h>
 
+/* mc_read result for a missing file (sceMcResNoEntry) */
+#define MC_NO_ENTRY (-4)
+
 void mc_init(void);
 
 /* 1 if a formatted PS2 card is inserted. */
@@ -12,6 +15,7 @@ int mc_present(int port);
 /* 1 if the game's main save exists. */
 int mc_has_mh2(int port);
 int mc_has_mhg(int port);
+int mc_has_mh1e(int port);
 
 /* Whole-file read (up to maxlen). Returns bytes read, or <0. */
 int mc_read(int port, const char *path, void *buf, int maxlen);

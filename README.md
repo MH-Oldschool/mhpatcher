@@ -2,9 +2,11 @@
 
 PS2 homebrew for Monster Hunter online play:
 
-- **Install patches**: writes the official online patch for Monster Hunter 2 (dos)
-  and Monster Hunter G (Japan) into the game's save, sealed to the console it
-  runs on.
+- **Install patches**: writes the official online patch for Monster Hunter 2 (dos),
+  Monster Hunter G [Japan] and Monster Hunter [Europe] into the game's save,
+  sealed to the console it runs on.
+- **Remove patches**: puts the save back in the state the game gives a new
+  save, without the patch.
 - **Backup saves**: backs up and restores Monster Hunter saves between a memory
   card and a USB drive.
 
@@ -33,6 +35,29 @@ ID (shown top right), so it only works on that console: if the card is moved to
 another PS2, install it again there. The original save is kept in memory and
 written back if anything fails.
 
+| Game | Patch |
+|---|---|
+| Monster Hunter 2 (dos) | official, written as `patch.bin` |
+| Monster Hunter G [Japan] | official, inside the game save |
+| Monster Hunter [Europe] | official 1.001 (`0509261742`), inside the game save; applied when the game goes online |
+
+Only official patches can be installed. The game checks the patch content
+against a digest from an RSA-signed record (Sony's key), so a changed patch is
+rejected when the save loads. The Monster Hunter [Europe] patch was extracted
+thanks to viciousShadow's original save data. Its changes: an unlock that needs
+Hunter Rank 20 and 50 hunts of two monsters counts Rathian and Rathalos instead
+of Fatalis and Aptonoth, and that unlock is checked again right after a quest.
+
+## Remove patches
+
+Pick the memory card and the game. The save is written back exactly as the game
+writes it for a new save: no patch, and the game's own build version, so it
+loads the save without one. MH2 keeps its `patch.bin`, holding no patch, since
+the game expects the file; MHG and MH [Europe] keep everything in the save
+except the patch. A save without a patch, including a new MH2 `patch.bin`, is
+left as it is; a missing MH2 `patch.bin` gets the new-save file. The original is
+kept in memory and written back if anything fails. No i.Link ID is needed.
+
 ## Backup saves
 
 Needs a USB drive formatted as FAT32 or exFAT. Each save is stored as one
@@ -42,11 +67,11 @@ tools can be restored too.
 | Game | Card folder |
 |---|---|
 | Monster Hunter 2 (dos) | `BISLPM-66280MH2` |
-| Monster Hunter G (Japan) | `BISLPM-65869MHG` |
-| Monster Hunter G (Korea) | `BKSLKA-25219MHG` |
-| Monster Hunter (Japan) | `BISLPM-65495MH` |
-| Monster Hunter (USA) | `BASLUS-20896MH` |
-| Monster Hunter (Europe) | `BESLES-52707MH` |
+| Monster Hunter G [Japan] | `BISLPM-65869MHG` |
+| Monster Hunter G [Korea] | `BKSLKA-25219MHG` |
+| Monster Hunter [Japan] | `BISLPM-65495MH` |
+| Monster Hunter [USA] | `BASLUS-20896MH` |
+| Monster Hunter [Europe] | `BESLES-52707MH` |
 
 Files on the drive, in `MHSAVES/`:
 
@@ -57,8 +82,8 @@ Files on the drive, in `MHSAVES/`:
 
 Every write to the card or the drive is read back and compared. A restore
 checks the backup and the card's free space before writing anything, and puts
-the original save back if writing fails. After restoring an MH2 or MHG save
-made on another console, install the patch again.
+the original save back if writing fails. After restoring an MH2, MHG or MH
+[Europe] save made on another console, install the patch again.
 
 ## Building
 

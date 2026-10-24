@@ -1,6 +1,6 @@
 /* Monster Hunter save obfuscation: a 16-bit XOR stream with an LCG key
- * schedule and a 16-bit additive checksum. Used by the MHG game save and the
- * MH2 patch.bin. */
+ * schedule and a 16-bit additive checksum. Used by the MHG and MH1 (Europe)
+ * game saves and the MH2 patch.bin. */
 #ifndef DNAS_SAVECODEC_H
 #define DNAS_SAVECODEC_H
 
@@ -16,13 +16,18 @@
 #define MHG_SAVE_SIZE     0x130d0
 #define MHG_SAVE_WORDS    0x9860   /* encoded 16-bit words after 8-byte header */
 
+/* MH1 (Europe) whole game save file BESLES-52707MH. */
+#define MH1E_SAVE_SIZE    0x11c0c
+#define MH1E_SAVE_WORDS   0x8dfe
+
 /* 16-bit additive checksum over a word range (sum of little-endian u16). */
 uint16_t mh_checksum(const uint8_t *data, size_t words);
 
-/* Decode/encode the MHG game save in place (8-byte header + MHG_SAVE_WORDS).
- * Returns 1 on success. decode validates version(0x0100)/tag(0x5963)/checksum. */
-int mhg_save_decode(uint8_t *buf /*MHG_SAVE_SIZE*/);
-void mhg_save_encode(uint8_t *buf /*MHG_SAVE_SIZE*/, uint16_t seed);
+/* Decode/encode a game save in place (8-byte header + `words` 16-bit words,
+ * MHG_SAVE_WORDS or MH1E_SAVE_WORDS). Returns 1 on success. decode validates
+ * version(0x0100)/tag(0x5963)/checksum. */
+int mh_save_decode(uint8_t *buf, size_t words);
+void mh_save_encode(uint8_t *buf, size_t words, uint16_t seed);
 
 /* Decode/encode the MH2 patch.bin payload. `file` is MH2_PATCHBIN_SIZE.
  * decode writes MH2_PAYLOAD_SIZE plaintext to payload; returns 1 on success.

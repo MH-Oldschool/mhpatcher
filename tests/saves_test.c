@@ -12,6 +12,11 @@
 #include "../src/ps2/usb.h"
 #include "fake_io.h"
 #include "../src/app/install.h"
+#include "../src/dnas/savecodec.h"
+#include "../src/dnas/outer_key.h"
+#include "../src/dnas/baked_data.h"
+#include "../src/crypto/rc6.h"
+#include "../src/dnas/patcher.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -248,7 +253,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* 16. patch install (MH2 / MHG) with transient and persistent card faults */
+    /* 16. patch install (MH2 / MHG / MH1E) with transient and persistent card faults */
     {
         static const uint8_t id[8] = { 0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0x00, 0x42 };
         static uint8_t ref[0x20000];
@@ -307,9 +312,161 @@ int main(int argc, char **argv) {
         mg = find(MHG_SAVE_DIR, MHG_SAVE_FILE);
         CHECK(mg && crc32(0, mg->data, mg->size) == morig, "MHG: original save put back");
         fail_write_from = -1;
+
+        /* MH1E: the official blob goes into the save, sealed to `id`; nothing else changes */
+        static uint8_t before[MH1E_SAVE_SIZE], after[MH1E_SAVE_SIZE];
+        card_reset(); card_load(root, save_dir(SG_MH1E), 1);
+        node *me = find(MH1E_SAVE_DIR, MH1E_SAVE_FILE);
+        CHECK(me && me->size == MH1E_SAVE_SIZE, "MH1E: save present");
+        memcpy(before, me->data, MH1E_SAVE_SIZE);
+        uint32_t eorig = crc32(0, me->data, me->size);
+        CHECK(mh_save_decode(before, MH1E_SAVE_WORDS), "MH1E: original save decodes");
+        CHECK(install_game(GAME_MH1E, 0, id) == INS_OK, "MH1E install");
+        me = find(MH1E_SAVE_DIR, MH1E_SAVE_FILE);
+        memcpy(after, me->data, MH1E_SAVE_SIZE);
+        CHECK(mh_save_decode(after, MH1E_SAVE_WORDS), "MH1E: written save decodes, checksum OK");
+        CHECK(!memcmp(after + 0x208, mh1e_blob, 0x180) &&
+              !memcmp(after + 0x208 + 0x200, mh1e_blob + 0x200, MH1E_BLOB_LEN - 0x200),
+              "MH1E: official blob in place outside the session header");
+        CHECK(!memcmp(after + 0x10208, mh1e_meta, 0x40), "MH1E: patch header (0509261742, 1001)");
+        uint8_t okey[32], hdr[128];
+        dnas_outer_key(id, okey);
+        rc6_cbc_decrypt(okey, okey + 16, after + 0x208 + 0x180, hdr, 128);
+        CHECK(!memcmp(hdr, mh1e_hdr_plain, 128), "MH1E: session header sealed to this console");
+        memcpy(after + 0x208, before + 0x208, MH1E_BLOB_LEN);
+        memcpy(after + 0x10208, before + 0x10208, 0x40);
+        CHECK(!memcmp(after + 8, before + 8, MH1E_SAVE_SIZE - 8), "MH1E: rest of the save untouched");
+
+        card_reset(); card_load(root, save_dir(SG_MH1E), 1);
+        fail_write_from = write_calls; fail_write_count = 2;
+        CHECK(install_game(GAME_MH1E, 0, id) == INS_ERR_WRITE, "MH1E: write fails twice -> INS_ERR_WRITE");
+        me = find(MH1E_SAVE_DIR, MH1E_SAVE_FILE);
+        CHECK(me && crc32(0, me->data, me->size) == eorig, "MH1E: original save put back");
+        fail_write_from = -1;
+
+        card_reset(); card_load(root, save_dir(SG_MH1E), 1);
+        me = find(MH1E_SAVE_DIR, MH1E_SAVE_FILE);
+        me->data[100] ^= 1;                                           /* checksum no longer matches */
+        CHECK(install_game(GAME_MH1E, 0, id) == INS_ERR_NO_SAVE, "MH1E: damaged save -> INS_ERR_NO_SAVE");
     }
 
-    /* 17. leave one real backup of each game for external validation */
+    /* 17. patch removal: back to the state the game gives a new save */
+    {
+        static const uint8_t id[8] = { 0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0x00, 0x42 };
+        static uint8_t orig[0x14000], got[0x14000];
+        static const struct { mh_game game; save_game sg; const char *dir, *file, *name; int size; size_t words; } G[] = {
+            { GAME_MHG,  SG_MHG,  MHG_SAVE_DIR,  MHG_SAVE_FILE,  "0411210839", MHG_SAVE_SIZE,  MHG_SAVE_WORDS },
+            { GAME_MH1E, SG_MH1E, MH1E_SAVE_DIR, MH1E_SAVE_FILE, "0502180939", MH1E_SAVE_SIZE, MH1E_SAVE_WORDS },
+        };
+        for (int g = 0; g < 2; g++) {
+            const char *n = G[g].dir;
+            card_reset(); card_load(root, save_dir(G[g].sg), 1);
+            node *f = find(G[g].dir, G[g].file);
+            memcpy(orig, f->data, G[g].size);
+            CHECK(mh_save_decode(orig, G[g].words), "%s: save decodes", n);
+            CHECK(install_game(G[g].game, 0, id) == INS_OK, "%s: install before removal", n);
+            CHECK(remove_game(G[g].game, 0) == INS_OK, "%s: remove", n);
+            f = find(G[g].dir, G[g].file);
+            CHECK(f && f->size == (uint32_t)G[g].size, "%s: save size kept", n);
+            memcpy(got, f->data, G[g].size);
+            CHECK(mh_save_decode(got, G[g].words), "%s: removed save decodes, checksum OK", n);
+            int blank = 1;
+            for (int i = 0x208; i < 0x10208; i++) blank &= got[i] == 0;
+            CHECK(blank, "%s: patch area cleared", n);
+            uint8_t fresh[0x40] = { 0 };
+            memcpy(fresh, G[g].name, 10); memcpy(fresh + 10, "1000", 4);
+            CHECK(!memcmp(got + 0x10208, fresh, 0x40), "%s: header = build stamp, 1000, length 0", n);
+            CHECK(!memcmp(got + 8, orig + 8, 0x200) &&
+                  !memcmp(got + 0x10248, orig + 0x10248, G[g].size - 0x10248), "%s: rest of the save untouched", n);
+
+            int writes = write_calls;
+            CHECK(remove_game(G[g].game, 0) == INS_OK && write_calls == writes, "%s: removing again writes nothing", n);
+
+            card_reset(); card_load(root, save_dir(G[g].sg), 1);
+            CHECK(install_game(G[g].game, 0, id) == INS_OK, "%s: install", n);
+            f = find(G[g].dir, G[g].file);
+            uint32_t patched = crc32(0, f->data, f->size);
+            fail_write_from = write_calls; fail_write_count = 2;
+            CHECK(remove_game(G[g].game, 0) == INS_ERR_WRITE, "%s: removal write fails twice -> INS_ERR_WRITE", n);
+            f = find(G[g].dir, G[g].file);
+            CHECK(f && crc32(0, f->data, f->size) == patched, "%s: patched save put back", n);
+            fail_write_from = -1;
+
+            card_reset(); card_load(root, save_dir(G[g].sg), 1);
+            f = find(G[g].dir, G[g].file);
+            f->data[100] ^= 1;
+            writes = write_calls;
+            CHECK(remove_game(G[g].game, 0) == INS_ERR_NO_SAVE && write_calls == writes,
+                  "%s: damaged save -> INS_ERR_NO_SAVE, nothing written", n);
+        }
+        /* MH2: patch.bin becomes the file a new save gets */
+        static uint8_t pay[MH2_PAYLOAD_SIZE];
+        const char *P2 = "/" MH2_SAVE_DIR "/" MH2_SAVE_FILE;
+        card_reset(); card_load(root, save_dir(SG_MH2), 1);
+        CHECK(install_game(GAME_MH2, 0, id) == INS_OK, "MH2: install before removal");
+        CHECK(remove_game(GAME_MH2, 0) == INS_OK, "MH2: remove");
+        node *pb = find(MH2_SAVE_DIR, MH2_SAVE_FILE);
+        CHECK(pb && pb->size == MH2_PATCHBIN_SIZE, "MH2: patch.bin kept, full size");
+        CHECK(pb && !mh2_patchbin_decode(pb->data, pay), "MH2: removed patch.bin fails its checksum, as a new save's does");
+        CHECK(!memcmp(pay, "06011622081000", 14) && !pay[0x14] && patcher_mh2_unpatched(pay),
+              "MH2: payload = build stamp, 1000, length 0");
+        CHECK(pb && !memcmp(pb->data, "\x01\x00\xd7\x26\x54\x68", 6), "MH2: the game's new-save header and seed");
+        int zeros = 1;
+        for (int i = 0x7d00; pb && i < 0x8250; i++) zeros &= !pb->data[i];
+        CHECK(pb && zeros && pb->data[0x7cff] && pb->data[0x8250], "MH2: the new save's zero run at 0x7d00..0x824f");
+        int writes = write_calls;
+        CHECK(remove_game(GAME_MH2, 0) == INS_OK && write_calls == writes, "MH2: removing again writes nothing");
+
+        card_reset(); card_load(root, save_dir(SG_MH2), 1);
+        mc_remove(0, P2);
+        CHECK(remove_game(GAME_MH2, 0) == INS_OK && find(MH2_SAVE_DIR, MH2_SAVE_FILE),
+              "MH2: missing patch.bin -> the new-save file is written");
+
+        card_reset(); card_load(root, save_dir(SG_MH2), 1);
+        CHECK(install_game(GAME_MH2, 0, id) == INS_OK, "MH2: install");
+        pb = find(MH2_SAVE_DIR, MH2_SAVE_FILE);
+        uint32_t patched = crc32(0, pb->data, pb->size);
+        fail_write_from = write_calls; fail_write_count = 2;
+        CHECK(remove_game(GAME_MH2, 0) == INS_ERR_WRITE, "MH2: removal write fails twice -> INS_ERR_WRITE");
+        pb = find(MH2_SAVE_DIR, MH2_SAVE_FILE);
+        CHECK(pb && crc32(0, pb->data, pb->size) == patched, "MH2: patched patch.bin put back");
+        fail_write_from = -1;
+
+        card_reset(); card_load(root, save_dir(SG_MH2), 1);
+        mc_remove(0, P2);
+        fail_write_from = write_calls; fail_write_count = 2;
+        CHECK(remove_game(GAME_MH2, 0) == INS_ERR_WRITE && !find(MH2_SAVE_DIR, MH2_SAVE_FILE),
+              "MH2: no patch.bin and the write fails -> nothing left behind");
+        fail_write_from = -1;
+
+        /* MH2: an unreadable patch.bin is never overwritten or removed */
+        for (int rm = 0; rm < 2; rm++) {
+            card_reset(); card_load(root, save_dir(SG_MH2), 1);
+            pb = find(MH2_SAVE_DIR, MH2_SAVE_FILE);
+            uint32_t before = crc32(0, pb->data, pb->size);
+            writes = write_calls; fail_read_count = 1;
+            install_result r = rm ? remove_game(GAME_MH2, 0) : install_game(GAME_MH2, 0, id);
+            fail_read_count = 0;
+            pb = find(MH2_SAVE_DIR, MH2_SAVE_FILE);
+            CHECK(r == INS_ERR_NO_SAVE && write_calls == writes && pb && crc32(0, pb->data, pb->size) == before,
+                  "MH2 %s: read error -> INS_ERR_NO_SAVE, patch.bin untouched", rm ? "remove" : "install");
+        }
+
+        /* a never-patched save is given back exactly: install + remove */
+        for (int g = 0; g < 2; g++) {
+            card_reset(); card_load(root, save_dir(G[g].sg), 1);
+            node *f = find(G[g].dir, G[g].file);
+            memcpy(orig, f->data, G[g].size);
+            memcpy(got, orig, G[g].size);
+            mh_save_decode(got, G[g].words);
+            if (got[0x10208 + 0x14] != 0) continue;
+            install_game(G[g].game, 0, id); remove_game(G[g].game, 0);
+            f = find(G[g].dir, G[g].file);
+            CHECK(!memcmp(f->data, orig, G[g].size), "%s: install + remove gives the never-patched file back, byte for byte", G[g].dir);
+        }
+    }
+
+    /* 18. leave one real backup of each game for external validation */
     usb_reset();
     for (int g = 0; g < SG_COUNT; g++) { card_reset(); card_load(root, save_dir(g), 7); save_scan(0, oc, ou); save_backup(0, g); }
 

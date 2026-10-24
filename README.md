@@ -39,12 +39,11 @@ written back if anything fails.
 |---|---|
 | Monster Hunter 2 (dos) | official, written as `patch.bin` |
 | Monster Hunter G [Japan] | official, inside the game save |
-| Monster Hunter [Europe] | official 1.001 (`0509261742`), inside the game save; applied when the game goes online |
+| Monster Hunter [Europe] | official 1.001 (`0509261742`), inside the game save |
 
 Only official patches can be installed. The game checks the patch content
 against a digest from an RSA-signed record (Sony's key), so a changed patch is
-rejected when the save loads. The Monster Hunter [Europe] patch was extracted
-thanks to viciousShadow's original save data. Its changes: an unlock that needs
+rejected. The Monster Hunter [Europe] patch's changes: an unlock that needs
 Hunter Rank 20 and 50 hunts of two monsters counts Rathian and Rathalos instead
 of Fatalis and Aptonoth, and that unlock is checked again right after a quest.
 

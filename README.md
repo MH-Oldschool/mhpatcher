@@ -43,9 +43,7 @@ written back if anything fails.
 
 Only official patches can be installed. The game checks the patch content
 against a digest from an RSA-signed record (Sony's key), so a changed patch is
-rejected. The Monster Hunter [Europe] patch's changes: an unlock that needs
-Hunter Rank 20 and 50 hunts of two monsters counts Rathian and Rathalos instead
-of Fatalis and Aptonoth, and that unlock is checked again right after a quest.
+rejected.
 
 ## Remove patches
 
